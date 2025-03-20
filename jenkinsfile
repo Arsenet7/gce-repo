@@ -2,7 +2,7 @@ pipeline {
     agent { label 'gce-node' }
 
     environment {
-        DOCKER_IMAGE = 'arsenet7/gce-repo:latest'
+        DOCKER_IMAGE = 'arsenet10/gce-repo:latest'
         GIT_REPO = 'https://github.com/Arsenet7/gce-repo.git'
         DOCKER_CREDENTIALS_ID = 'dockerhub-ars-id' // Ensure this is set in Jenkins credentials
     }
