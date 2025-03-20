@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Math Questions Archive</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="text-center">Past Math Questions</h1>
+        <div class="row" id="questions-container">
+            <!-- Questions will be populated here -->
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.2/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            $.ajax({
+                url: 'includes/fetch_questions.php',
+                method: 'GET',
+                dataType: 'json',
+                success: function(data) {
+                    const container = $('#questions-container');
+                    data.forEach(question => {
+                        container.append(`
+                            <div class="col-md-4">
+                                <div class="card mb-4">
+                                    <div class="card-body">
+                                        <h5 class="card-title">Question ${question.id}</h5>
+                                        <p class="card-text">${question.question_text}</p>
+                                        <a href="${question.answer_link}" class="btn btn-primary">View Answer</a>
+                                    </div>
+                                </div>
+                            </div>
+                        `);
+                    });
+                },
+                error: function() {
+                    console.error('Error fetching questions');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

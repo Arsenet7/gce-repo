@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Math Practice Test</title>
+    <link rel="stylesheet" href="css/bootstrap.min.css">
+    <style>
+        .timer {
+            font-size: 24px;
+            font-weight: bold;
+            color: red;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-expand-lg navbar-light bg-light">
+    <a class="navbar-brand" href="index.html">GCE Prep</a>
+</nav>
+
+<!-- Math Test Section -->
+<section class="py-5">
+    <div class="container">
+        <h2 class="text-center">Math Practice Test</h2>
+        <p class="text-center">You have <span class="timer" id="timer">10:00</span> minutes to complete the test.</p>
+        
+        <!-- Questions Section -->
+        <form id="mathTestForm">
+            <div class="form-group">
+                <label>1. What is 5 + 3?</label>
+                <input type="text" class="form-control" name="question1" placeholder="Your answer">
+            </div>
+            <div class="form-group">
+                <label>2. What is 7 x 6?</label>
+                <input type="text" class="form-control" name="question2" placeholder="Your answer">
+            </div>
+            <!-- More questions will go here -->
+            <button type="submit" class="btn btn-primary">Submit Answers</button>
+        </form>
+    </div>
+</section>
+
+<!-- Timer Script -->
+<script>
+    // Timer countdown script
+    let timeLeft = 10 * 60; // 10 minutes in seconds
+    const timerDisplay = document.getElementById('timer');
+
+    function updateTimer() {
+        const minutes = Math.floor(timeLeft / 60);
+        const seconds = timeLeft % 60;
+        timerDisplay.textContent = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+        timeLeft--;
+
+        if (timeLeft < 0) {
+            clearInterval(timerInterval);
+            alert("Time's up!");
+            document.getElementById("mathTestForm").submit(); // Automatically submits the form when time is up
+        }
+    }
+
+    const timerInterval = setInterval(updateTimer, 1000);
+
+    // Prevent form submission if time is up
+    document.getElementById("mathTestForm").addEventListener("submit", function(event) {
+        if (timeLeft <= 0) {
+            event.preventDefault();
+            alert("Test time is over, please review the results.");
+        }
+    });
+</script>
+
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.2/dist/umd/popper.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+</body>
+</html>

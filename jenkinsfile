@@ -1,0 +1,74 @@
+pipeline {
+    agent { label 'gce-node' }
+
+    environment {
+        DOCKER_IMAGE = 'arsenet7/gce-repo:latest'
+        GIT_REPO = 'https://github.com/Arsenet7/gce-repo.git'
+        DOCKER_CREDENTIALS_ID = 'dockerhub-ars-id' // Ensure this is set in Jenkins credentials
+    }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                git branch: 'jenkins', url: "${GIT_REPO}"
+            }
+        }
+
+        stage('Deploy to Nginx') {
+            steps {
+                sh '''
+                sudo cp -r * /var/www/html/
+                sudo systemctl restart nginx
+                '''
+            }
+        }
+
+        stage('Test HTML Content') {
+            steps {
+                sh '''
+                curl -I http://3.142.156.134 | grep "200 OK" || exit 1
+                '''
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    sh 'docker build -t ${DOCKER_IMAGE} .'
+                }
+            }
+        }
+
+
+        stage('Push Docker Image') {
+            steps {
+                script {
+                    docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDENTIALS_ID}") {
+                        sh 'docker push ${DOCKER_IMAGE}'
+                    }
+                }
+            }
+        }
+
+        stage('Deploy Application') {
+            steps {
+                script {
+                    sh '''
+                    docker stop gce-repo || true
+                    docker rm gce-repo || true
+                    docker run -d --name gce-repo -p 8080:80 ${DOCKER_IMAGE}
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Deployment Successful 🚀'
+        }
+        failure {
+            echo 'Deployment Failed ❌'
+        }
+    }
+}
