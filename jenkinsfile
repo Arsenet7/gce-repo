@@ -1,9 +1,15 @@
 pipeline {
     agent { label 'gce-node' }
 
+    parameters {
+        booleanParam(name: 'RUN_SONARQUBE', defaultValue: true, description: 'Run SonarQube Analysis')
+    }
+
+
     environment {
         DOCKER_IMAGE = 'arsenet10/gce-repo:latest'
-        GIT_REPO = 'https://github.com/Arsenet7/gce-repo.git'
+        SONAR_TOKEN = credentials('sonarid') // Sonar token from Jenkins credentials
+        GIT_REPO = 'https://github.com/Arsenet7/gce-repo1.git'
         DOCKER_CREDENTIALS_ID = 'dockerhub-ars-id' // Ensure this is set in Jenkins credentials
     }
 
@@ -28,6 +34,29 @@ pipeline {
                 sh '''
                 curl -I http://3.142.156.134 | grep "200 OK" || exit 1
                 '''
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            when {
+                expression { !params.RUN_SONARQUBE } // Execute only if RUN_SONARQUBE is true
+            }
+            environment {
+                SCANNER_HOME = tool 'sonar' // SonarQube scanner tool in Jenkins
+            }
+            steps {
+                script {
+                    // Perform SonarQube analysis using the SonarQube plugin
+                    withSonarQubeEnv('sonar') { // 'sonar' is the SonarQube server configured in Jenkins
+                        sh """
+                            ${SCANNER_HOME}/bin/sonar-scanner \
+                            -Dsonar.projectKey=gce-app \
+                            -Dsonar.host.url=https://sonarqube.devopseasylearning.uk/ \
+                            -Dsonar.login=$SONAR_TOKEN \
+                            -Dsonar.sources=./
+                        """
+                    }
+                }
             }
         }
 
