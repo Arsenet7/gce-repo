@@ -3,7 +3,7 @@ pipeline {
 
     parameters {
         booleanParam(name: 'RUN_SONARQUBE', defaultValue: true, description: 'Run SonarQube Analysis')
-        string(name: 'K8S_NAMESPACE', defaultValue: 'default', description: 'Kubernetes namespace to deploy to')
+        string(name: 'K8S_NAMESPACE', defaultValue: 's6arsene', description: 'Kubernetes namespace to deploy to')
     }
 
     environment {
@@ -106,7 +106,7 @@ pipeline {
         
         stage('Deploy to Kubernetes') {
             steps {
-                withCredentials([file(credentialsId: 'kubeconfig-credentials-id', variable: 'KUBECONFIG_FILE')]) {
+                withCredentials([file(credentialsId: 'kubeconfig-id', variable: 'KUBECONFIG_FILE')]) {
                     sh '''
                     # Check if kubectl is installed
                     kubectl version --client
