@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gce-app
+  labels:
+    app: gce-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gce-app
+  template:
+    metadata:
+      labels:
+        app: gce-app
+    spec:
+      containers:
+      - name: gce-app
+        image: arsenet10/gce-repo:latest
+        ports:
+        - containerPort: 80
+        resources:
+          limits:
+            cpu: "0.5"
+            memory: "512Mi"
+          requests:
+            cpu: "0.2"
+            memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gce-app-service
+spec:
+  selector:
+    app: gce-app
+  ports:
+  - port: 80
+    targetPort: 80
+  type: NodePort

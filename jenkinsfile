@@ -3,14 +3,15 @@ pipeline {
 
     parameters {
         booleanParam(name: 'RUN_SONARQUBE', defaultValue: true, description: 'Run SonarQube Analysis')
+        string(name: 'K8S_NAMESPACE', defaultValue: 's6arsene', description: 'Kubernetes namespace to deploy to')
     }
-
 
     environment {
         DOCKER_IMAGE = 'arsenet10/gce-repo:latest'
         SONAR_TOKEN = credentials('sonarid') // Sonar token from Jenkins credentials
         GIT_REPO = 'https://github.com/Arsenet7/gce-repo1.git'
         DOCKER_CREDENTIALS_ID = 'dockerhub-ars-id' // Ensure this is set in Jenkins credentials
+        KUBECONFIG = credentials('kubeconfig-id') // Add this credential in Jenkins
     }
 
     stages {
@@ -32,14 +33,14 @@ pipeline {
         stage('Test HTML Content') {
             steps {
                 sh '''
-                curl -I http://52.14.185.110 | grep "200 OK" || exit 1
+                curl -I http://3.148.198.213 | grep "200 OK" || exit 1
                 '''
             }
         }
 
         stage('SonarQube Analysis') {
             when {
-                expression { !params.RUN_SONARQUBE } // Execute only if RUN_SONARQUBE is true
+                expression { params.RUN_SONARQUBE } // Fixed: Execute only if RUN_SONARQUBE is true
             }
             environment {
                 SCANNER_HOME = tool 'sonar' // SonarQube scanner tool in Jenkins
@@ -68,7 +69,6 @@ pipeline {
             }
         }
 
-
         stage('Push Docker Image') {
             steps {
                 script {
@@ -79,7 +79,7 @@ pipeline {
             }
         }
 
-        stage('Deploy Application') {
+        stage('Deploy to Docker Container') {
             steps {
                 script {
                     sh '''
@@ -87,6 +87,27 @@ pipeline {
                     docker rm gce-repo || true
                     docker run -d --name gce-repo -p 8080:80 ${DOCKER_IMAGE}
                     '''
+                }
+            }
+        }
+        
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    // Set KUBECONFIG environment variable
+                    withEnv(["KUBECONFIG=${KUBECONFIG}"]) {
+                        // Check if kubectl is installed and configured
+                        sh 'kubectl version --client'
+                        
+                        // Apply Kubernetes manifests from the k8s directory
+                        sh "kubectl apply -f ./k8s/ -n ${params.K8S_NAMESPACE}"
+                        
+                        // Wait for deployment to complete
+                        sh """
+                        DEPLOYMENT=\$(kubectl get deployments -n ${params.K8S_NAMESPACE} -o jsonpath='{.items[0].metadata.name}')
+                        kubectl rollout status deployment/\${DEPLOYMENT} -n ${params.K8S_NAMESPACE}
+                        """
+                    }
                 }
             }
         }
