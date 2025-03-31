@@ -32,7 +32,7 @@ pipeline {
         stage('Test HTML Content') {
             steps {
                 sh '''
-                curl -I http://52.14.185.110 | grep "200 OK" || exit 1
+                curl -I http://3.148.198.213 | grep "200 OK" || exit 1
                 '''
             }
         }
