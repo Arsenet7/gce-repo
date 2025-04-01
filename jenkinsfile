@@ -14,7 +14,7 @@ pipeline {
         DOCKER_CREDENTIALS_ID = 'dockerhub-ars-id' // Ensure this is set in Jenkins credentials
         GITOPS_REPO = 'https://github.com/Arsenet7/gce-argocd.git' // Your GitOps repository
         GITOPS_BRANCH = 'main' // Branch in your GitOps repository
-        GIT_CREDS = credentials('github-credentials-id') // GitHub credentials
+        GIT_CREDS = credentials('githubs') // GitHub credentials
     }
 
     stages {
@@ -101,7 +101,7 @@ pipeline {
                     
                     dir('gitops-temp') {
                         // Clone the GitOps repository
-                        withCredentials([usernamePassword(credentialsId: 'github-credentials-id', 
+                        withCredentials([usernamePassword(credentialsId: 'githubs', 
                                                         usernameVariable: 'GIT_USERNAME', 
                                                         passwordVariable: 'GIT_PASSWORD')]) {
                             sh """
@@ -122,7 +122,7 @@ pipeline {
                         """
                         
                         // Commit and push the changes
-                        withCredentials([usernamePassword(credentialsId: 'github-credentials-id', 
+                        withCredentials([usernamePassword(credentialsId: 'githubs', 
                                                         usernameVariable: 'GIT_USERNAME', 
                                                         passwordVariable: 'GIT_PASSWORD')]) {
                             sh """
