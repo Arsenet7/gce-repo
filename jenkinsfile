@@ -156,7 +156,7 @@ pipeline {
                     // Login to ArgoCD
                     withCredentials([string(credentialsId: 'argocd-token', variable: 'ARGOCD_AUTH_TOKEN')]) {
                         sh """
-                            argocd login --auth-token ${ARGOCD_AUTH_TOKEN} --insecure --grpc-web 134.122.119.201:30719
+                            argocd login --auth-token ${ARGOCD_AUTH_TOKEN} --insecure --grpc-web http://134.122.119.201:30719
                             argocd app sync ${params.ARGOCD_APP_NAME}
                             argocd app wait ${params.ARGOCD_APP_NAME} --health
                         """
