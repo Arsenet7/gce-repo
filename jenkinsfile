@@ -3,7 +3,8 @@ pipeline {
 
     parameters {
         booleanParam(name: 'RUN_SONARQUBE', defaultValue: true, description: 'Run SonarQube Analysis')
-        string(name: 'K8S_NAMESPACE', defaultValue: 's6arsene', description: 'Kubernetes namespace to deploy to')
+        string(name: 'K8S_NAMESPACE', defaultValue: 'default', description: 'Kubernetes namespace to deploy to')
+        string(name: 'ARGOCD_APP_NAME', defaultValue: 'gce-app', description: 'ArgoCD Application name')
     }
 
     environment {
@@ -11,6 +12,9 @@ pipeline {
         SONAR_TOKEN = credentials('sonarid') // Sonar token from Jenkins credentials
         GIT_REPO = 'https://github.com/Arsenet7/gce-repo1.git'
         DOCKER_CREDENTIALS_ID = 'dockerhub-ars-id' // Ensure this is set in Jenkins credentials
+        GITOPS_REPO = 'https://github.com/Arsenet7/gce-argocd.git' // Your GitOps repository
+        GITOPS_BRANCH = 'main' // Branch in your GitOps repository
+        GIT_CREDS = credentials('github-credentials-id') // GitHub credentials
     }
 
     stages {
@@ -32,7 +36,7 @@ pipeline {
         stage('Test HTML Content') {
             steps {
                 sh '''
-                curl -I http://3.148.198.213 | grep "200 OK" || exit 1
+                curl -I http://52.15.226.21 | grep "200 OK" || exit 1
                 '''
             }
         }
@@ -46,8 +50,7 @@ pipeline {
             }
             steps {
                 script {
-                    // Perform SonarQube analysis using the SonarQube plugin
-                    withSonarQubeEnv('sonar') { // 'sonar' is the SonarQube server configured in Jenkins
+                    withSonarQubeEnv('sonar') {
                         sh """
                             ${SCANNER_HOME}/bin/sonar-scanner \
                             -Dsonar.projectKey=gce-app \
@@ -90,34 +93,74 @@ pipeline {
             }
         }
         
-        stage('Install kubectl') {
+        stage('Update GitOps Repository') {
             steps {
-                sh '''
-                # Check if kubectl is already installed
-                if ! command -v kubectl &> /dev/null; then
-                    # Install kubectl
-                    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-                    chmod +x kubectl
-                    sudo mv kubectl /usr/local/bin/
-                fi
-                '''
+                script {
+                    // Create a temporary directory
+                    sh 'mkdir -p gitops-temp'
+                    
+                    dir('gitops-temp') {
+                        // Clone the GitOps repository
+                        withCredentials([usernamePassword(credentialsId: 'github-credentials-id', 
+                                                        usernameVariable: 'GIT_USERNAME', 
+                                                        passwordVariable: 'GIT_PASSWORD')]) {
+                            sh """
+                                git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@${GITOPS_REPO.replace('https://', '')} .
+                                git checkout ${GITOPS_BRANCH}
+                            """
+                        }
+                        
+                        // Ensure the app directory exists
+                        sh "mkdir -p ${params.ARGOCD_APP_NAME}"
+                        
+                        // Copy the Kubernetes manifests from main repository
+                        sh "cp -r ../k8s/* ${params.ARGOCD_APP_NAME}/"
+                        
+                        // Update the image tag in the deployment.yaml
+                        sh """
+                            sed -i 's|image: arsenet10/gce-repo:.*|image: ${DOCKER_IMAGE}|g' ${params.ARGOCD_APP_NAME}/deployment.yaml
+                        """
+                        
+                        // Commit and push the changes
+                        withCredentials([usernamePassword(credentialsId: 'github-credentials-id', 
+                                                        usernameVariable: 'GIT_USERNAME', 
+                                                        passwordVariable: 'GIT_PASSWORD')]) {
+                            sh """
+                                git config user.email "jenkins@example.com"
+                                git config user.name "Jenkins"
+                                git add ${params.ARGOCD_APP_NAME}/*
+                                git commit -m "Update ${params.ARGOCD_APP_NAME} image to ${DOCKER_IMAGE}"
+                                git push origin ${GITOPS_BRANCH}
+                            """
+                        }
+                    }
+                    
+                    // Clean up
+                    sh 'rm -rf gitops-temp'
+                }
             }
         }
         
-        stage('Deploy to Kubernetes') {
+        stage('Sync ArgoCD Application') {
             steps {
-                withCredentials([file(credentialsId: 'kubeconfig-id', variable: 'KUBECONFIG_FILE')]) {
+                script {
+                    // Install ArgoCD CLI if not present
                     sh '''
-                    # Check if kubectl is installed
-                    kubectl version --client
-                    
-                    # Apply Kubernetes manifests
-                    kubectl --kubeconfig=$KUBECONFIG_FILE apply -f k8s/ -n ${K8S_NAMESPACE}
-                    
-                    # Wait for deployment to complete
-                    DEPLOYMENT=$(kubectl --kubeconfig=$KUBECONFIG_FILE get deployments -n ${K8S_NAMESPACE} -o jsonpath='{.items[0].metadata.name}')
-                    kubectl --kubeconfig=$KUBECONFIG_FILE rollout status deployment/${DEPLOYMENT} -n ${K8S_NAMESPACE}
+                    if ! command -v argocd &> /dev/null; then
+                        curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+                        sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
+                        rm argocd-linux-amd64
+                    fi
                     '''
+                    
+                    // Login to ArgoCD
+                    withCredentials([string(credentialsId: 'argocd-auth-token', variable: 'ARGOCD_AUTH_TOKEN')]) {
+                        sh """
+                            argocd login --auth-token ${ARGOCD_AUTH_TOKEN} --insecure --grpc-web argocd-server.example.com
+                            argocd app sync ${params.ARGOCD_APP_NAME}
+                            argocd app wait ${params.ARGOCD_APP_NAME} --health
+                        """
+                    }
                 }
             }
         }
@@ -129,6 +172,10 @@ pipeline {
         }
         failure {
             echo 'Deployment Failed ❌'
+        }
+        always {
+            // Clean workspace
+            cleanWs()
         }
     }
 }
