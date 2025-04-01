@@ -154,7 +154,7 @@ pipeline {
                     '''
                     
                     // Login to ArgoCD
-                    withCredentials([string(credentialsId: 'argocd-auth-token', variable: 'ARGOCD_AUTH_TOKEN')]) {
+                    withCredentials([string(credentialsId: 'argocd-token', variable: 'ARGOCD_AUTH_TOKEN')]) {
                         sh """
                             argocd login --auth-token ${ARGOCD_AUTH_TOKEN} --insecure --grpc-web argocd-server.example.com
                             argocd app sync ${params.ARGOCD_APP_NAME}
