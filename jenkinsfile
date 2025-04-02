@@ -142,7 +142,7 @@ pipeline {
             }
         }
         
-        stage('Sync ArgoCD Application') {
+        stage('Deploy with ArgoCD') {
             steps {
                 script {
                     // Install ArgoCD CLI if not present
@@ -160,13 +160,38 @@ pipeline {
                                                     passwordVariable: 'ARGOCD_PASSWORD')]) {
                         sh '''
                             # Login to ArgoCD using username and password
-                            echo ${ARGOCD_PASSWORD} | argocd login ${ARGOCD_SERVER} --username ${ARGOCD_USERNAME} --password ${ARGOCD_PASSWORD} --insecure
+                            argocd login 134.122.119.201:30719 --username ${ARGOCD_USERNAME} --password ${ARGOCD_PASSWORD} --insecure
+                            
+                            # List available applications
+                            echo "Checking for existing applications:"
+                            argocd app list
+                            
+                            # Check if app exists, create if it doesn't
+                            if ! argocd app get ${ARGOCD_APP_NAME} &>/dev/null; then
+                                echo "Application ${ARGOCD_APP_NAME} does not exist, creating it now"
+                                
+                                # Create the application
+                                argocd app create ${ARGOCD_APP_NAME} \
+                                    --repo ${GITOPS_REPO} \
+                                    --path ${ARGOCD_APP_NAME} \
+                                    --dest-server https://kubernetes.default.svc \
+                                    --dest-namespace ${K8S_NAMESPACE} \
+                                    --sync-policy automated \
+                                    --auto-prune \
+                                    --self-heal
+                                    
+                                echo "Application ${ARGOCD_APP_NAME} created successfully"
+                            else
+                                echo "Application ${ARGOCD_APP_NAME} already exists"
+                            fi
                             
                             # Sync the application
+                            echo "Syncing application ${ARGOCD_APP_NAME}"
                             argocd app sync ${ARGOCD_APP_NAME}
                             
                             # Wait for application to be healthy
-                            argocd app wait ${ARGOCD_APP_NAME} --health
+                            echo "Waiting for application ${ARGOCD_APP_NAME} to be healthy"
+                            argocd app wait ${ARGOCD_APP_NAME} --health --timeout 300
                         '''
                     }
                 }
