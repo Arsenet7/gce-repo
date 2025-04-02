@@ -185,9 +185,7 @@ pipeline {
                                 echo "Application ${ARGOCD_APP_NAME} already exists"
                             fi
                             
-                            # Sync the application
-                            echo "Syncing application ${ARGOCD_APP_NAME}"
-                            argocd app sync ${ARGOCD_APP_NAME}
+                            
                             
                             # Wait for application to be healthy
                             echo "Waiting for application ${ARGOCD_APP_NAME} to be healthy"
