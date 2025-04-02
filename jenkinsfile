@@ -105,10 +105,10 @@ pipeline {
                         withCredentials([usernamePassword(credentialsId: 'githubs', 
                                                         usernameVariable: 'GIT_USERNAME', 
                                                         passwordVariable: 'GIT_PASSWORD')]) {
-                            sh '''
+                            sh """
                                 git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@${GITOPS_REPO.replace('https://', '')} .
                                 git checkout ${GITOPS_BRANCH}
-                            '''
+                            """
                         }
                         
                         // Ensure the app directory exists
@@ -118,21 +118,21 @@ pipeline {
                         sh "cp -r ../k8s/* ${params.ARGOCD_APP_NAME}/"
                         
                         // Update the image tag in the deployment.yaml
-                        sh '''
+                        sh """
                             sed -i 's|image: arsenet10/gce-repo:.*|image: ${DOCKER_IMAGE}|g' ${params.ARGOCD_APP_NAME}/deployment.yaml
-                        '''
+                        """
                         
                         // Commit and push the changes
                         withCredentials([usernamePassword(credentialsId: 'githubs', 
                                                         usernameVariable: 'GIT_USERNAME', 
                                                         passwordVariable: 'GIT_PASSWORD')]) {
-                            sh '''
+                            sh """
                                 git config user.email "jenkins@example.com"
                                 git config user.name "Jenkins"
                                 git add ${params.ARGOCD_APP_NAME}/*
                                 git commit -m "Update ${params.ARGOCD_APP_NAME} image to ${DOCKER_IMAGE}"
                                 git push origin ${GITOPS_BRANCH}
-                            '''
+                            """
                         }
                     }
                     
