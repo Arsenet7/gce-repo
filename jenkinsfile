@@ -15,6 +15,7 @@ pipeline {
         GITOPS_REPO = 'https://github.com/Arsenet7/gce-argocd.git' // Your GitOps repository
         GITOPS_BRANCH = 'main' // Branch in your GitOps repository
         GIT_CREDS = credentials('githubs') // GitHub credentials
+        ARGOCD_SERVER = '134.122.119.201:30719' // ArgoCD server address and port
     }
 
     stages {
@@ -104,10 +105,10 @@ pipeline {
                         withCredentials([usernamePassword(credentialsId: 'githubs', 
                                                         usernameVariable: 'GIT_USERNAME', 
                                                         passwordVariable: 'GIT_PASSWORD')]) {
-                            sh """
+                            sh '''
                                 git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@${GITOPS_REPO.replace('https://', '')} .
                                 git checkout ${GITOPS_BRANCH}
-                            """
+                            '''
                         }
                         
                         // Ensure the app directory exists
@@ -117,21 +118,21 @@ pipeline {
                         sh "cp -r ../k8s/* ${params.ARGOCD_APP_NAME}/"
                         
                         // Update the image tag in the deployment.yaml
-                        sh """
+                        sh '''
                             sed -i 's|image: arsenet10/gce-repo:.*|image: ${DOCKER_IMAGE}|g' ${params.ARGOCD_APP_NAME}/deployment.yaml
-                        """
+                        '''
                         
                         // Commit and push the changes
                         withCredentials([usernamePassword(credentialsId: 'githubs', 
                                                         usernameVariable: 'GIT_USERNAME', 
                                                         passwordVariable: 'GIT_PASSWORD')]) {
-                            sh """
+                            sh '''
                                 git config user.email "jenkins@example.com"
                                 git config user.name "Jenkins"
                                 git add ${params.ARGOCD_APP_NAME}/*
                                 git commit -m "Update ${params.ARGOCD_APP_NAME} image to ${DOCKER_IMAGE}"
                                 git push origin ${GITOPS_BRANCH}
-                            """
+                            '''
                         }
                     }
                     
@@ -153,13 +154,20 @@ pipeline {
                     fi
                     '''
                     
-                    // Login to ArgoCD
-                    withCredentials([string(credentialsId: 'argocd-token', variable: 'ARGOCD_AUTH_TOKEN')]) {
-                        sh """
-                            argocd login --auth-token ${ARGOCD_AUTH_TOKEN} --insecure --grpc-web 134.122.119.201:30719
-                            argocd app sync ${params.ARGOCD_APP_NAME}
-                            argocd app wait ${params.ARGOCD_APP_NAME} --health
-                        """
+                    // Login to ArgoCD using username and password
+                    withCredentials([usernamePassword(credentialsId: 'argocd-credentials', 
+                                                    usernameVariable: 'ARGOCD_USERNAME', 
+                                                    passwordVariable: 'ARGOCD_PASSWORD')]) {
+                        sh '''
+                            # Login to ArgoCD using username and password
+                            echo ${ARGOCD_PASSWORD} | argocd login ${ARGOCD_SERVER} --username ${ARGOCD_USERNAME} --password-stdin --insecure
+                            
+                            # Sync the application
+                            argocd app sync ${ARGOCD_APP_NAME}
+                            
+                            # Wait for application to be healthy
+                            argocd app wait ${ARGOCD_APP_NAME} --health
+                        '''
                     }
                 }
             }
