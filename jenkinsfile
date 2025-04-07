@@ -120,6 +120,8 @@ pipeline {
                         // Copy the Kubernetes manifests from main repository
                         sh "cp -r ../k8s/* ${params.ARGOCD_APP_NAME}/"
                         
+                        sh "mv ${params.ARGOCD_APP_NAME}/gce.yaml ${params.ARGOCD_APP_NAME}/gce-${BUILD_NUMBER}.yaml "
+
                         // Update the image tag in the deployment.yaml
                         sh """
                             sed -i 's|image: arsenet10/gce-repo:.*|image: ${DOCKER_IMAGE}|g' ${params.ARGOCD_APP_NAME}/deployment.yaml
