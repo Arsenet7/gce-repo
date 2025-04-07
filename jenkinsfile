@@ -148,59 +148,50 @@ pipeline {
         }
         
         stage('Deploy with ArgoCD') {
-            steps {
-                script {
-                    // Install ArgoCD CLI if not present
-                    sh '''
-                    if ! command -v argocd &> /dev/null; then
-                        curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-                        sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
-                        rm argocd-linux-amd64
-                    fi
-                    '''
+    steps {
+        script {
+            // Install ArgoCD CLI if not present
+            sh '''
+            if ! command -v argocd &> /dev/null; then
+                curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+                sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
+                rm argocd-linux-amd64
+            fi
+            '''
+            
+            // Login to ArgoCD using username and password
+            withCredentials([usernamePassword(credentialsId: 'argocd-credentials', 
+                                            usernameVariable: 'ARGOCD_USERNAME', 
+                                            passwordVariable: 'ARGOCD_PASSWORD')]) {
+                // Using double quotes for proper variable expansion
+                sh """
+                    # Login to ArgoCD using username and password
+                    argocd login ${ARGOCD_SERVER} --username ${ARGOCD_USERNAME} --password ${ARGOCD_PASSWORD} --insecure
                     
-                    // Login to ArgoCD using username and password
-                    withCredentials([usernamePassword(credentialsId: 'argocd-credentials', 
-                                                    usernameVariable: 'ARGOCD_USERNAME', 
-                                                    passwordVariable: 'ARGOCD_PASSWORD')]) {
-                        sh '''
-                            # Login to ArgoCD using username and password
-                            argocd login 134.122.119.201:30719 --username ${ARGOCD_USERNAME} --password ${ARGOCD_PASSWORD} --insecure
-                            
-                            # List available applications
-                            echo "Checking for existing applications:"
-                            argocd app list
-                            
-                            # Check if app exists, create if it doesn't
-                            if ! argocd app get ${ARGOCD_APP_NAME} &>/dev/null; then
-                                echo "Application ${ARGOCD_APP_NAME} does not exist, creating it now"
-                                
-                                # Create the application
-                                argocd app create ${ARGOCD_APP_NAME} \
-                                    --repo ${GITOPS_REPO} \
-                                    --path ${ARGOCD_APP_NAME} \
-                                    --dest-server https://kubernetes.default.svc \
-                                    --dest-namespace ${K8S_NAMESPACE} \
-                                    --sync-policy automated \
-                                    --auto-prune \
-                                    --self-heal
-                                    
-                                echo "Application ${ARGOCD_APP_NAME} created successfully"
-                            else
-                                echo "Application ${ARGOCD_APP_NAME} already exists"
-                            fi
-                            
-                            
-                            
-                            # Wait for application to be healthy
-                            echo "Waiting for application ${ARGOCD_APP_NAME} to be healthy"
-                            argocd app wait ${ARGOCD_APP_NAME} --health --timeout 300
-                        '''
-                    }
-                }
+                    # List available applications
+                    echo "Checking for existing applications:"
+                    argocd app list
+                    
+                    # Try to create/update the application with the upsert flag
+                    echo "Creating/updating application ${ARGOCD_APP_NAME}"
+                    argocd app create ${ARGOCD_APP_NAME} \\
+                        --repo ${GITOPS_REPO} \\
+                        --path ${ARGOCD_APP_NAME} \\
+                        --dest-server https://kubernetes.default.svc \\
+                        --dest-namespace ${K8S_NAMESPACE} \\
+                        --sync-policy automated \\
+                        --auto-prune \\
+                        --self-heal \\
+                        --upsert || true
+                    
+                    # Wait for application to be healthy
+                    echo "Waiting for application ${ARGOCD_APP_NAME} to be healthy"
+                    argocd app wait ${ARGOCD_APP_NAME} --health --timeout 300
+                """
             }
         }
     }
+}
 
     post {
         success {
