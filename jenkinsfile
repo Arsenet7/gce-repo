@@ -115,7 +115,7 @@ pipeline {
                         sh "mkdir -p ${params.ARGOCD_APP_NAME}"
                         
                         // Remove the gce.yaml file
-                        sh rm -rf gce/gce.yaml
+                        sh " rm -rf gce/gce.yaml"
                     
                         // Copy the Kubernetes manifests from main repository
                         sh "cp -r ../k8s/* ${params.ARGOCD_APP_NAME}/"
