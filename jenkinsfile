@@ -9,7 +9,7 @@ pipeline {
 
     environment {
         DOCKER_IMAGE = 'arsenet10/gce-repo:latest'
-        SONAR_TOKEN = credentials('sonarid') // Sonar token from Jenkins credentials
+        SONAR_TOKEN = credentials('gce-node-sonarqube') // Sonar token from Jenkins credentials
         GIT_REPO = 'https://github.com/Arsenet7/gce-repo1.git'
         DOCKER_CREDENTIALS_ID = 'dockerhub-ars-id' // Ensure this is set in Jenkins credentials
         GITOPS_REPO = 'https://github.com/Arsenet7/gce-argocd.git' // Your GitOps repository
@@ -55,7 +55,7 @@ pipeline {
                         sh """
                             ${SCANNER_HOME}/bin/sonar-scanner \
                             -Dsonar.projectKey=gce-app \
-                            -Dsonar.host.url=https://sonarqube.devopseasylearning.uk/ \
+                            -Dsonar.host.url=http://18.191.240.114:9000/ \
                             -Dsonar.login=$SONAR_TOKEN \
                             -Dsonar.sources=./
                         """
