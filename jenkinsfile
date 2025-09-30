@@ -76,7 +76,7 @@ pipeline {
             steps {
                 script {
                     docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDENTIALS_ID}") {
-                        sh 'sudo docker push ${DOCKER_IMAGE}'
+                        sh ' docker push ${DOCKER_IMAGE}'
                     }
                 }
             }
