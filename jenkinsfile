@@ -15,7 +15,7 @@ pipeline {
         GITOPS_REPO = 'https://github.com/Arsenet7/gce-argocd.git' // Your GitOps repository
         GITOPS_BRANCH = 'main' // Branch in your GitOps repository
         GIT_CREDS = credentials('githubs') // GitHub credentials
-        ARGOCD_SERVER = '134.122.119.201:30719' // ArgoCD server address and port
+        ARGOCD_SERVER = '3.128.188.193:30080' // ArgoCD server address and port
     }
 
     stages {
