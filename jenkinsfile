@@ -164,39 +164,55 @@ pipeline {
                                                     usernameVariable: 'ARGOCD_USERNAME', 
                                                     passwordVariable: 'ARGOCD_PASSWORD')]) {
                         sh '''
-                            # Login to ArgoCD using username and password
-                            argocd login 18.222.208.41:30080 --username ${ARGOCD_USERNAME} --password ${ARGOCD_PASSWORD} --insecure
-                            
-                            # List available applications
-                            echo "Checking for existing applications:"
-                            argocd app list
-                            
-                            # Check if app exists, create if it doesn't
-                            if ! argocd app get ${ARGOCD_APP_NAME} &>/dev/null; then
-                                echo "Application ${ARGOCD_APP_NAME} does not exist, creating it now"
-                                
-                                # Create the application
-                                argocd app create ${ARGOCD_APP_NAME} \
-                                    --repo ${GITOPS_REPO} \
-                                    --path ${ARGOCD_APP_NAME} \
-                                    --dest-server https://kubernetes.default.svc \
-                                    --dest-namespace ${K8S_NAMESPACE} \
-                                    --sync-policy automated \
-                                    --auto-prune \
-                                    --self-heal \
-                                    --upsert || true
-                                    
-                                echo "Application ${ARGOCD_APP_NAME} created successfully"
-                            else
-                                echo "Application ${ARGOCD_APP_NAME} already exists"
-                            fi
-                            
-                            
-                            
-                            # Wait for application to be healthy
-                            echo "Waiting for application ${ARGOCD_APP_NAME} to be healthy"
-                            argocd app wait ${ARGOCD_APP_NAME} --health --timeout 300
-                        '''
+            set -euo pipefail
+
+            # install Argo CD CLI locally (no sudo)
+            if ! [ -x ./argocd ]; then
+              curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+              chmod +x argocd
+            fi
+
+            # add --grpc-web if fronted by Ingress/ALB
+            EXTRA_FLAGS=""
+            if [ "${ARGOCD_USE_GRPC_WEB}" = "true" ]; then
+              EXTRA_FLAGS="--grpc-web"
+            fi
+
+            # login with username/password
+            ./argocd login "${ARGOCD_SERVER}" --insecure ${EXTRA_FLAGS} \
+              --username "${ARGOCD_USERNAME}" --password "${ARGOCD_PASSWORD}"
+
+            echo "Existing Argo CD apps:"
+            ./argocd app list || true
+
+            # register the GitOps repo if private (idempotent-ish)
+            if ! ./argocd repo list | grep -q "${GITOPS_REPO}"; then
+              ./argocd repo add "${GITOPS_REPO}" \
+                --username "${GIT_USERNAME}" \
+                --password "${GIT_PASSWORD}" \
+                --insecure-skip-server-verification || true
+            fi
+
+            # create or upsert the app
+            if ! ./argocd app get "${ARGOCD_APP_NAME}" >/dev/null 2>&1; then
+              echo "Creating Argo CD app: ${ARGOCD_APP_NAME}"
+              ./argocd app create "${ARGOCD_APP_NAME}" \
+                --repo "${GITOPS_REPO}" \
+                --path "${ARGOCD_APP_NAME}" \
+                --dest-server https://kubernetes.default.svc \
+                --dest-namespace "${K8S_NAMESPACE}" \
+                --sync-policy automated \
+                --auto-prune \
+                --self-heal \
+                --upsert
+            else
+              echo "App ${ARGOCD_APP_NAME} exists – syncing latest changes"
+            fi
+
+            # sync & wait for health
+            ./argocd app sync "${ARGOCD_APP_NAME}"
+            ./argocd app wait "${ARGOCD_APP_NAME}" --health --timeout 600
+          '''
                     }
                 }
             }
