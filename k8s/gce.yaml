@@ -11,7 +11,7 @@ spec:
     path: gce-app
   destination:
     server: https://kubernetes.default.svc
-    namespace: s6arsene
+    namespace: argocd
   syncPolicy:
     automated:
       prune: true
