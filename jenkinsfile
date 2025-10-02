@@ -15,7 +15,7 @@ pipeline {
         GITOPS_REPO = 'https://github.com/Arsenet7/gce-argocd.git' // Your GitOps repository
         GITOPS_BRANCH = 'main' // Branch in your GitOps repository
         GIT_CREDS = credentials('githubs') // GitHub credentials
-        ARGOCD_SERVER = '3.128.188.193:30080' // ArgoCD server address and port
+        ARGOCD_SERVER = '18.222.208.41:30080' // ArgoCD server address and port
     }
 
     stages {
@@ -55,7 +55,7 @@ pipeline {
                         sh """
                             ${SCANNER_HOME}/bin/sonar-scanner \
                             -Dsonar.projectKey=gce-app \
-                            -Dsonar.host.url=http://18.191.240.114:9000/ \
+                            -Dsonar.host.url=http://3.15.193.183:9000/ \
                             -Dsonar.login=$SONAR_TOKEN \
                             -Dsonar.sources=./
                         """
@@ -165,7 +165,7 @@ pipeline {
                                                     passwordVariable: 'ARGOCD_PASSWORD')]) {
                         sh '''
                             # Login to ArgoCD using username and password
-                            argocd login 134.122.119.201:30719 --username ${ARGOCD_USERNAME} --password ${ARGOCD_PASSWORD} --insecure
+                            argocd login 18.222.208.41:30080 --username ${ARGOCD_USERNAME} --password ${ARGOCD_PASSWORD} --insecure
                             
                             # List available applications
                             echo "Checking for existing applications:"
