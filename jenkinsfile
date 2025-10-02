@@ -1,214 +1,218 @@
 pipeline {
-  agent { label 'gce-node' }
+    agent { label 'gce-node' }
 
-  parameters {
-    booleanParam(name: 'RUN_SONARQUBE', defaultValue: true, description: 'Run SonarQube Analysis')
-    string(name: 'K8S_NAMESPACE', defaultValue: 'default', description: 'Kubernetes namespace to deploy to')
-    string(name: 'ARGOCD_APP_NAME', defaultValue: 'gce-app', description: 'Argo CD Application name (also folder name in GitOps repo)')
-  }
-
-  environment {
-    DOCKER_IMAGE          = 'arsenet10/gce-repo:latest'
-    SONAR_TOKEN           = credentials('gce-node-sonarqube')           // Sonar token
-    GIT_REPO              = 'https://github.com/Arsenet7/gce-repo1.git'
-    DOCKER_CREDENTIALS_ID = 'dockerhub-ars-id'                          // DockerHub creds
-    GITOPS_REPO           = 'https://github.com/Arsenet7/gce-argocd.git'
-    GITOPS_BRANCH         = 'main'
-    ARGOCD_SERVER         = '18.222.208.41:30080'                       // Argo CD URL:Port
-    ARGOCD_USE_GRPC_WEB   = 'false'                                     // set to 'true' if behind Ingress/ALB
-  }
-
-  stages {
-
-    stage('Checkout Code') {
-      steps {
-        sh 'set -euo pipefail'
-        git branch: 'jenkins', url: "${GIT_REPO}"
-      }
+    parameters {
+        booleanParam(name: 'RUN_SONARQUBE', defaultValue: true, description: 'Run SonarQube Analysis')
+        string(name: 'K8S_NAMESPACE', defaultValue: 'default', description: 'Kubernetes namespace to deploy to')
+        string(name: 'ARGOCD_APP_NAME', defaultValue: 'gce-app', description: 'ArgoCD Application name')
     }
 
-    stage('Deploy to Nginx') {
-      steps {
-        sh '''
-          set -euo pipefail
-          sudo cp -r * /var/www/html/
-          sudo systemctl restart nginx
-        '''
-      }
+    environment {
+        DOCKER_IMAGE = 'arsenet10/gce-repo:latest'
+        SONAR_TOKEN = credentials('gce-node-sonarqube') // Sonar token from Jenkins credentials
+        GIT_REPO = 'https://github.com/Arsenet7/gce-repo1.git'
+        DOCKER_CREDENTIALS_ID = 'dockerhub-ars-id' // Ensure this is set in Jenkins credentials
+        GITOPS_REPO = 'https://github.com/Arsenet7/gce-argocd.git' // Your GitOps repository
+        GITOPS_BRANCH = 'main' // Branch in your GitOps repository
+        GIT_CREDS = credentials('githubs') // GitHub credentials
+        ARGOCD_SERVER = '18.222.208.41:30080' // ArgoCD server address and port
     }
 
-    stage('Test HTML Content') {
-      steps {
-        sh '''
-          set -euo pipefail
-          curl -sI http://3.135.221.3 | grep -q "200 OK"
-        '''
-      }
-    }
-
-    stage('SonarQube Analysis') {
-      when { expression { params.RUN_SONARQUBE } }
-      environment { SCANNER_HOME = tool 'sonar' }
-      steps {
-        script {
-          withSonarQubeEnv('sonar') {
-            sh """
-              set -euo pipefail
-              ${SCANNER_HOME}/bin/sonar-scanner \
-                -Dsonar.projectKey=gce-app \
-                -Dsonar.host.url=http://3.15.193.183:9000/ \
-                -Dsonar.login=$SONAR_TOKEN \
-                -Dsonar.sources=./
-            """
-          }
+    stages {
+        stage('Checkout Code') {
+            steps {
+                git branch: 'jenkins', url: "${GIT_REPO}"
+            }
         }
-      }
-    }
 
-    stage('Build Docker Image') {
-      steps {
-        sh '''
-          set -euo pipefail
-          sudo docker build -t ${DOCKER_IMAGE} .
-        '''
-      }
-    }
-
-    stage('Push Docker Image') {
-      steps {
-        script {
-          docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDENTIALS_ID}") {
-            sh '''
-              set -euo pipefail
-              docker push ${DOCKER_IMAGE}
-            '''
-          }
+        stage('Deploy to Nginx') {
+            steps {
+                sh '''
+                sudo cp -r * /var/www/html/
+                sudo systemctl restart nginx
+                '''
+            }
         }
-      }
-    }
 
-    stage('Run Container (Smoke)') {
-      steps {
-        sh '''
-          set -euo pipefail
-          sudo docker stop gce-repo || true
-          sudo docker rm   gce-repo || true
-          sudo docker run -d --name gce-repo -p 8080:80 ${DOCKER_IMAGE}
-        '''
-      }
-    }
-
-    stage('Update GitOps Repository') {
-      steps {
-        dir('gitops-temp') {
-          withCredentials([usernamePassword(credentialsId: 'githubs',
-                                            usernameVariable: 'GIT_USERNAME',
-                                            passwordVariable: 'GIT_PASSWORD')]) {
-            sh """
-              set -euo pipefail
-
-              rm -rf ./* || true
-              git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@${GITOPS_REPO.replace('https://','')} .
-              git checkout ${GITOPS_BRANCH}
-
-              mkdir -p "${ARGOCD_APP_NAME}"
-              # remove only gce* files inside the app directory (keeps other files intact)
-              rm -f ${ARGOCD_APP_NAME}/gce* || true
-
-              # copy manifests from the main repo into the app folder
-              cp -r ../k8s/* "${ARGOCD_APP_NAME}/"
-
-              # optionally version one manifest for traceability
-              if [ -f "${ARGOCD_APP_NAME}/gce.yaml" ]; then
-                mv "${ARGOCD_APP_NAME}/gce.yaml" "${ARGOCD_APP_NAME}/gce-${BUILD_NUMBER}.yaml"
-              fi
-
-              # update image reference
-              if ls ${ARGOCD_APP_NAME}/*deployment*.yaml >/dev/null 2>&1; then
-                sed -i 's|image: *arsenet10/gce-repo:.*|image: ${DOCKER_IMAGE}|g' ${ARGOCD_APP_NAME}/*deployment*.yaml || true
-              else
-                sed -i 's|image: *arsenet10/gce-repo:.*|image: ${DOCKER_IMAGE}|g' ${ARGOCD_APP_NAME}/*.yaml || true
-              fi
-
-              git config user.email "jenkins@example.com"
-              git config user.name  "Jenkins"
-              git add ${ARGOCD_APP_NAME}/*
-              git commit -m "Update ${ARGOCD_APP_NAME} image to ${DOCKER_IMAGE} (build ${BUILD_NUMBER})" || echo "Nothing to commit"
-              git push origin ${GITOPS_BRANCH}
-            """
-          }
+        stage('Test HTML Content') {
+            steps {
+                sh '''
+                curl -I http://3.135.221.3 | grep "200 OK" || exit 1
+                '''
+            }
         }
-      }
-    }
 
-    stage('Deploy with Argo CD') {
-      steps {
-        withCredentials([
-          usernamePassword(credentialsId: 'argocd-credentials',
-                           usernameVariable: 'ARGOCD_USERNAME',
-                           passwordVariable: 'ARGOCD_PASSWORD'),
-          usernamePassword(credentialsId: 'githubs',
-                           usernameVariable: 'GIT_USERNAME',
-                           passwordVariable: 'GIT_PASSWORD')
-        ]) {
-          sh '''
-            set -euo pipefail
-
-            # install Argo CD CLI locally (no sudo)
-            if ! [ -x ./argocd ]; then
-              curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-              chmod +x argocd
-            fi
-
-            # add --grpc-web if fronted by Ingress/ALB
-            EXTRA_FLAGS=""
-            if [ "${ARGOCD_USE_GRPC_WEB}" = "true" ]; then
-              EXTRA_FLAGS="--grpc-web"
-            fi
-
-            # login with username/password
-            ./argocd login "${ARGOCD_SERVER}" --insecure ${EXTRA_FLAGS} \
-              --username "${ARGOCD_USERNAME}" --password "${ARGOCD_PASSWORD}"
-
-            echo "Existing Argo CD apps:"
-            ./argocd app list || true
-
-            # register the GitOps repo if private (idempotent-ish)
-            if ! ./argocd repo list | grep -q "${GITOPS_REPO}"; then
-              ./argocd repo add "${GITOPS_REPO}" \
-                --username "${GIT_USERNAME}" \
-                --password "${GIT_PASSWORD}" \
-                --insecure-skip-server-verification || true
-            fi
-
-            # create or upsert the app
-            if ! ./argocd app get "${ARGOCD_APP_NAME}" >/dev/null 2>&1; then
-              echo "Creating Argo CD app: ${ARGOCD_APP_NAME}"
-              ./argocd app create "${ARGOCD_APP_NAME}" \
-                --repo "${GITOPS_REPO}" \
-                --path "${ARGOCD_APP_NAME}" \
-                --dest-server https://kubernetes.default.svc \
-                --dest-namespace "${K8S_NAMESPACE}" \
-                --sync-policy automated \
-                --auto-prune \
-                --self-heal \
-                --upsert
-            else
-              echo "App ${ARGOCD_APP_NAME} exists – syncing latest changes"
-            fi
-
-            # sync & wait for health
-            ./argocd app sync "${ARGOCD_APP_NAME}"
-            ./argocd app wait "${ARGOCD_APP_NAME}" --health --timeout 600
-          '''
+        stage('SonarQube Analysis') {
+            when {
+                expression { params.RUN_SONARQUBE }
+            }
+            environment {
+                SCANNER_HOME = tool 'sonar' // SonarQube scanner tool in Jenkins
+            }
+            steps {
+                script {
+                    withSonarQubeEnv('sonar') {
+                        sh """
+                            ${SCANNER_HOME}/bin/sonar-scanner \
+                            -Dsonar.projectKey=gce-app \
+                            -Dsonar.host.url=http://3.15.193.183:9000/ \
+                            -Dsonar.login=$SONAR_TOKEN \
+                            -Dsonar.sources=./
+                        """
+                    }
+                }
+            }
         }
-      }
-    }
-  }
 
-  post {
-    success { echo 'Deployment Successful 🚀' }
-    failure { echo 'Deployment Failed ❌' }
-    always  { cleanWs() }
-  }
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    sh 'sudo docker build -t ${DOCKER_IMAGE} .'
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                script {
+                    docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDENTIALS_ID}") {
+                        sh ' docker push ${DOCKER_IMAGE}'
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Docker Container') {
+            steps {
+                script {
+                    sh '''
+                    sudo docker stop gce-repo || true
+                    sudo docker rm gce-repo || true
+                    sudo docker run -d --name gce-repo -p 8080:80 ${DOCKER_IMAGE}
+                    '''
+                }
+            }
+        }
+        
+        stage('Update GitOps Repository') {
+            steps {
+                script {
+                    // Create a temporary directory
+                    sh 'mkdir -p gitops-temp'
+                    
+                    dir('gitops-temp') {
+                        // Clone the GitOps repository
+                        withCredentials([usernamePassword(credentialsId: 'githubs', 
+                                                        usernameVariable: 'GIT_USERNAME', 
+                                                        passwordVariable: 'GIT_PASSWORD')]) {
+                            sh """
+                                git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@${GITOPS_REPO.replace('https://', '')} .
+                                git checkout ${GITOPS_BRANCH}
+                            """
+                        }
+                        
+                        // Ensure the app directory exists
+                        sh "mkdir -p ${params.ARGOCD_APP_NAME}"
+                        
+                        // Remove the gce.yaml file
+                        sh " rm -rf gce-app/gce*"
+                    
+                        // Copy the Kubernetes manifests from main repository
+                        sh "cp -r ../k8s/* ${params.ARGOCD_APP_NAME}/"
+                        
+                        sh "mv ${params.ARGOCD_APP_NAME}/gce.yaml ${params.ARGOCD_APP_NAME}/gce-${BUILD_NUMBER}.yaml "
+
+                        // Update the image tag in the deployment.yaml
+                        sh """
+                            sed -i 's|image: arsenet10/gce-repo:.*|image: ${DOCKER_IMAGE}|g' ${params.ARGOCD_APP_NAME}/deployment.yaml
+                        """
+                        
+                        // Commit and push the changes
+                        withCredentials([usernamePassword(credentialsId: 'githubs', 
+                                                        usernameVariable: 'GIT_USERNAME', 
+                                                        passwordVariable: 'GIT_PASSWORD')]) {
+                            sh """
+                                git config user.email "jenkins@example.com"
+                                git config user.name "Jenkins"
+                                git add ${params.ARGOCD_APP_NAME}/*
+                                git commit -m "Update ${params.ARGOCD_APP_NAME} image to ${DOCKER_IMAGE}"
+                                git push origin ${GITOPS_BRANCH}
+                            """
+                        }
+                    }
+                    
+                    // Clean up
+                    sh 'rm -rf gitops-temp'
+                }
+            }
+        }
+        
+        stage('Deploy with ArgoCD') {
+            steps {
+                script {
+                    // Install ArgoCD CLI if not present
+                    sh '''
+                    if ! command -v argocd &> /dev/null; then
+                        curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+                        sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
+                        rm argocd-linux-amd64
+                    fi
+                    '''
+                    
+                    // Login to ArgoCD using username and password
+                    withCredentials([usernamePassword(credentialsId: 'argocd-credentials', 
+                                                    usernameVariable: 'ARGOCD_USERNAME', 
+                                                    passwordVariable: 'ARGOCD_PASSWORD')]) {
+                        sh '''
+                            # Login to ArgoCD using username and password
+                            argocd login 18.222.208.41:30080 --username ${ARGOCD_USERNAME} --password ${ARGOCD_PASSWORD} --insecure
+                            
+                            # List available applications
+                            echo "Checking for existing applications:"
+                            argocd app list
+                            
+                            # Check if app exists, create if it doesn't
+                            if ! argocd app get ${ARGOCD_APP_NAME} &>/dev/null; then
+                                echo "Application ${ARGOCD_APP_NAME} does not exist, creating it now"
+                                
+                                # Create the application
+                                argocd app create ${ARGOCD_APP_NAME} \
+                                    --repo ${GITOPS_REPO} \
+                                    --path ${ARGOCD_APP_NAME} \
+                                    --dest-server https://kubernetes.default.svc \
+                                    --dest-namespace ${K8S_NAMESPACE} \
+                                    --sync-policy automated \
+                                    --auto-prune \
+                                    --self-heal \
+                                    --upsert || true
+                                    
+                                echo "Application ${ARGOCD_APP_NAME} created successfully"
+                            else
+                                echo "Application ${ARGOCD_APP_NAME} already exists"
+                            fi
+                            
+                            
+                            
+                            # Wait for application to be healthy
+                            echo "Waiting for application ${ARGOCD_APP_NAME} to be healthy"
+                            argocd app wait ${ARGOCD_APP_NAME} --health --timeout 300
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Deployment Successful 🚀'
+        }
+        failure {
+            echo 'Deployment Failed ❌'
+        }
+        always {
+            // Clean workspace
+            cleanWs()
+        }
+    }
 }
