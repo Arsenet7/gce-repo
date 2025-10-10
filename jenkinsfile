@@ -15,7 +15,7 @@ pipeline {
         GITOPS_REPO = 'https://github.com/Arsenet7/gce-argocd.git'
         GITOPS_BRANCH = 'main'
         GIT_CREDS = credentials('githubs')
-        ARGOCD_SERVER = '18.118.6.81:30080:30080'
+        ARGOCD_SERVER = '18.118.6.81:30080'
     }
 
     stages {
