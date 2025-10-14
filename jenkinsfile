@@ -1,0 +1,242 @@
+pipeline {
+    agent { label 'gce-node' }
+
+    parameters {
+        booleanParam(name: 'RUN_SONARQUBE', defaultValue: true, description: 'Run SonarQube Analysis')
+        string(name: 'K8S_NAMESPACE', defaultValue: 'default', description: 'Kubernetes namespace to deploy to')
+        string(name: 'ARGOCD_APP_NAME', defaultValue: 'gce-app', description: 'ArgoCD Application name')
+    }
+
+    environment {
+        DOCKER_IMAGE = 'arsenet10/gce-repo:latest'
+        SONAR_TOKEN = credentials('gce-node-sonarqube')
+        GIT_REPO = 'https://github.com/Arsenet7/gce-repo1.git'
+        DOCKER_CREDENTIALS_ID = 'dockerhub-ars-id'
+        GITOPS_REPO = 'https://github.com/Arsenet7/gce-argocd.git'
+        GITOPS_BRANCH = 'main'
+        GIT_CREDS = credentials('githubs')
+        ARGOCD_SERVER = '3.17.12.255:30080'
+    }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                git branch: 'jenkins', url: "${GIT_REPO}"
+            }
+        }
+
+        stage('Deploy to Nginx') {
+            steps {
+                sh '''
+                    sudo cp -r * /var/www/html/
+                    sudo systemctl restart nginx
+                '''
+            }
+        }
+
+        stage('Test HTML Content') {
+            steps {
+                sh '''
+                    curl -I http://18.118.122.226 | grep "200 OK" || exit 1
+                '''
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            when {
+                expression { params.RUN_SONARQUBE }
+            }
+            environment {
+                SCANNER_HOME = tool 'sonar'
+            }
+            steps {
+                script {
+                    withSonarQubeEnv('sonar') {
+                        sh '''
+                            ${SCANNER_HOME}/bin/sonar-scanner \
+                            -Dsonar.projectKey=gce-app \
+                            -Dsonar.sources=./
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    sh 'docker build -t ${DOCKER_IMAGE} .'
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                script {
+                    docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDENTIALS_ID}") {
+                        sh 'docker push ${DOCKER_IMAGE}'
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Docker Container') {
+            steps {
+                script {
+                    sh '''
+                        docker stop gce-repo || true
+                        docker rm gce-repo || true
+                        docker run -d --name gce-repo -p 8080:80 ${DOCKER_IMAGE}
+                    '''
+                }
+            }
+        }
+        
+        stage('Update GitOps Repository') {
+            steps {
+                script {
+                    sh 'mkdir -p gitops-temp'
+                    
+                    dir('gitops-temp') {
+                        withCredentials([usernamePassword(credentialsId: 'githubs', 
+                                                        usernameVariable: 'GIT_USERNAME', 
+                                                        passwordVariable: 'GIT_PASSWORD')]) {
+                            sh '''
+                                git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/Arsenet7/gce-argocd.git .
+                                git checkout ${GITOPS_BRANCH}
+                            '''
+                        }
+                        
+                        sh "mkdir -p ${params.ARGOCD_APP_NAME}"
+                        sh "rm -rf ${params.ARGOCD_APP_NAME}/gce*.yaml"
+                        sh "cp -r ../k8s/* ${params.ARGOCD_APP_NAME}/"
+                        sh "mv ${params.ARGOCD_APP_NAME}/gce.yaml ${params.ARGOCD_APP_NAME}/gce-${BUILD_NUMBER}.yaml"
+                        
+                        sh """
+                            sed -i 's|image: arsenet10/gce-repo:.*|image: ${DOCKER_IMAGE}|g' ${params.ARGOCD_APP_NAME}/deployment.yaml
+                        """
+                        
+                        withCredentials([usernamePassword(credentialsId: 'githubs', 
+                                                        usernameVariable: 'GIT_USERNAME', 
+                                                        passwordVariable: 'GIT_PASSWORD')]) {
+                            sh """
+                                git config user.email "jenkins@example.com"
+                                git config user.name "Jenkins"
+                                git add ${params.ARGOCD_APP_NAME}/*
+                                git commit -m "Update ${params.ARGOCD_APP_NAME} image to ${DOCKER_IMAGE}" || echo "No changes to commit"
+                                git push origin ${GITOPS_BRANCH}
+                            """
+                        }
+                    }
+                    
+                    sh 'rm -rf gitops-temp'
+                }
+            }
+        }
+        
+        stage('Deploy with ArgoCD') {
+            steps {
+                script {
+                    // Install ArgoCD CLI if not present
+                    sh '''
+                        if ! command -v argocd &> /dev/null; then
+                            echo "Installing ArgoCD CLI..."
+                            curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+                            sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
+                            rm argocd-linux-amd64
+                            echo "ArgoCD CLI installed successfully"
+                        fi
+                    '''
+                    
+                    withCredentials([usernamePassword(credentialsId: 'argocd-credentials', 
+                                                    usernameVariable: 'ARGOCD_USERNAME', 
+                                                    passwordVariable: 'ARGOCD_PASSWORD')]) {
+                        sh '''
+                            set -e
+                            
+                            echo "======================================"
+                            echo "Logging into ArgoCD..."
+                            echo "======================================"
+                            argocd login ${ARGOCD_SERVER} \
+                                --username ${ARGOCD_USERNAME} \
+                                --password ${ARGOCD_PASSWORD} \
+                                --insecure
+                            
+                            echo "======================================"
+                            echo "Checking ArgoCD version..."
+                            echo "======================================"
+                            argocd version --client
+                            
+                            echo "======================================"
+                            echo "Checking if application exists..."
+                            echo "======================================"
+                            if argocd app get ${ARGOCD_APP_NAME} 2>/dev/null; then
+                                echo "Application ${ARGOCD_APP_NAME} exists, updating..."
+                                
+                                # Update application
+                                argocd app set ${ARGOCD_APP_NAME} \
+                                    --repo ${GITOPS_REPO} \
+                                    --path ${ARGOCD_APP_NAME} \
+                                    --dest-namespace ${K8S_NAMESPACE}
+                                
+                                echo "Application updated successfully"
+                            else
+                                echo "Application ${ARGOCD_APP_NAME} does not exist, creating..."
+                                
+                                # Create application
+                                argocd app create ${ARGOCD_APP_NAME} \
+                                    --repo ${GITOPS_REPO} \
+                                    --path ${ARGOCD_APP_NAME} \
+                                    --dest-server https://kubernetes.default.svc \
+                                    --dest-namespace ${K8S_NAMESPACE} \
+                                    --sync-policy automated \
+                                    --auto-prune \
+                                    --self-heal
+                                
+                                echo "Application created successfully"
+                            fi
+                            
+                            echo "======================================"
+                            echo "Syncing application..."
+                            echo "======================================"
+                            argocd app sync ${ARGOCD_APP_NAME} --prune
+                            
+                            echo "======================================"
+                            echo "Waiting for application to be healthy..."
+                            echo "======================================"
+                            argocd app wait ${ARGOCD_APP_NAME} \
+                                --health \
+                                --timeout 300
+                            
+                            echo "======================================"
+                            echo "Getting application details..."
+                            echo "======================================"
+                            argocd app get ${ARGOCD_APP_NAME}
+                            
+                            echo "======================================"
+                            echo "Deployment completed successfully!"
+                            echo "ArgoCD UI: http://${ARGOCD_SERVER}"
+                            echo "======================================"
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '======================================'
+            echo 'Pipeline Completed Successfully'
+            echo '======================================'
+        }
+        failure {
+            echo '======================================'
+            echo 'Pipeline Failed'
+            echo '======================================'
+        }
+        always {
+            cleanWs()
+        }
+    }
+}
