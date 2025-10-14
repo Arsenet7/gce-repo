@@ -15,7 +15,7 @@ pipeline {
         GITOPS_REPO = 'https://github.com/Arsenet7/gce-argocd.git'
         GITOPS_BRANCH = 'main'
         GIT_CREDS = credentials('githubs')
-        ARGOCD_SERVER = '18.118.6.81:30080'
+        ARGOCD_SERVER = '18.191.62.30:30080'
     }
 
     stages {
@@ -37,7 +37,7 @@ pipeline {
         stage('Test HTML Content') {
             steps {
                 sh '''
-                    curl -I http://3.143.235.52 | grep "200 OK" || exit 1
+                    curl -I http://18.118.122.226 | grep "200 OK" || exit 1
                 '''
             }
         }
